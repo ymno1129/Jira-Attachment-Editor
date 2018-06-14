@@ -30,12 +30,17 @@ class AttachmentEditor():
         self.main_window = QtUiTools.QUiLoader().load("ui/main.ui")
         self.jira = None
         
-        with open("profile.json", 'r') as f:
-            j = json.load(f)
-            self.server_url = j["server"]
-            self.username = j["username"]
-            self.password = j["password"]
-           
+        if os.path.exists("profile.json"):
+            with open("profile.json", 'r') as f:
+                j = json.load(f)
+                self.server_url = j["server"]
+                self.username = j["username"]
+                self.password = j["password"]
+        else:
+            self.server_url = ""
+            self.username = ""
+            self.password = ""
+        
         if (needs_auth):
             self.showLoginWindow()           
         else:
@@ -61,17 +66,23 @@ class AttachmentEditor():
         self.password = self.login_window.password.text()
         
         success = False
-        
         try:
             self.jira = self.connect_to_JIRA(self.server_url, auth=(self.username, self.password))
             success = True
         except Exception as e:
-            print "Login Failed! Please Re-try!"
+            print e
+            self.displayWarning("Failed", "Login failed. Please retry.")
             
         if success:
-            print self.server_url, "connected"
+            user_info = {"server": self.server_url, "username": self.username, "password": self.password}
+            with open("profile.json", 'w') as output:
+                json.dump(user_info, output)
+            self.displayInfo("Success", "You have logged in successfully!")
             self.launchMain()
         else:
+            self.server_url = ""
+            self.username = ""
+            self.password = ""
             self.showLoginWindow()
             
     def launchMain(self):
@@ -107,7 +118,6 @@ class AttachmentEditor():
             self.original_attachments = {}
             
             for idx, attachment in enumerate(attachments):
-                #file_name = str(attachment).split('.')[0]
                 file_name = str(attachment)
                 file_sufix = '.' + str(attachment).split('.')[1]
                 file_author = attachment.author.displayName
@@ -183,10 +193,14 @@ class AttachmentEditor():
             
         #Re-upload all changed
         success = False
+        msg = "Updating attachments!"
+        self.initializeProgressBar(msg)
+        num_attachments = len(self.attachments_mapping)
+        index = 0
         for attachment in self.attachments_mapping:
             sufix = self.attachments_mapping[attachment][2]
             f = self.attachments_mapping[attachment][0]
-            file_name = attachment + sufix
+            file_name = attachment + sufix if sufix not in attachment else attachment
             #Create a local temp copy to upload
             with open(file_name, 'wb') as tmp_out:
                 tmp_out.write(f)
@@ -194,19 +208,20 @@ class AttachmentEditor():
                 try:
                     self.jira.add_attachment(issue=self.issue, attachment=to_upload, filename=file_name) 
                     success = True
+                    index += 1
+                    self.refreshProgressBar(num_attachments, index)
                 except Exception as e:
                     print e
-                    #TODO make it more secure?
             #Delete local copy
             os.remove(file_name)
-            
         if success:
-            print "Renaming done!"
+            self.displayInfo("Success", "Attachments have been renamed successfully.")
             self.selectedAttachment = ""
             self.getIssueById()
             #print "ori after = ", self.original_attachments.keys()
             #print "curr after = ", self.attachments_mapping.keys()
-      
+            a = 1
+   
     #Using python JIRA module
     def connect_to_JIRA(self, server_url, auth):
         options = {'server': server_url, 'verify':False}
@@ -282,8 +297,11 @@ class AttachmentEditor():
             self.progress_window.progressBar.setValue(current)
     
     def displayWarning(self, title, msg):
-        self.warning_window = QtGui.QMessageBox.warning(self.main_window, title, msg)
-        #self.warning_window.show()
+        QtGui.QMessageBox.warning(self.main_window, title, msg)
+    
+    def displayInfo(self, title, msg):
+        QtGui.QMessageBox.information(self.main_window, title, msg)
+        
     
 def testStuff():
     options = {'server': "https://hdc-tomcat-jira194.ubisoft.org/jira", 'verify':False}

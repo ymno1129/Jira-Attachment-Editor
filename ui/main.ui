@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>655</width>
+    <width>767</width>
     <height>385</height>
    </rect>
   </property>
@@ -98,6 +98,9 @@
        <bold>false</bold>
       </font>
      </property>
+     <property name="editTriggers">
+      <set>QAbstractItemView::NoEditTriggers</set>
+     </property>
      <attribute name="headerDefaultSectionSize">
       <number>80</number>
      </attribute>
@@ -121,12 +124,12 @@
      </column>
     </widget>
    </widget>
-   <widget class="QGroupBox" name="originGroup">
+   <widget class="QGroupBox" name="originalGroup">
     <property name="geometry">
      <rect>
       <x>360</x>
       <y>50</y>
-      <width>271</width>
+      <width>391</width>
       <height>271</height>
      </rect>
     </property>
@@ -140,12 +143,12 @@
     <property name="title">
      <string>Original</string>
     </property>
-    <widget class="QTreeWidget" name="originTree">
+    <widget class="QTreeWidget" name="originalTree">
      <property name="geometry">
       <rect>
        <x>10</x>
        <y>20</y>
-       <width>251</width>
+       <width>371</width>
        <height>231</height>
       </rect>
      </property>
@@ -156,8 +159,11 @@
        <bold>false</bold>
       </font>
      </property>
+     <property name="showDropIndicator" stdset="0">
+      <bool>true</bool>
+     </property>
      <attribute name="headerDefaultSectionSize">
-      <number>80</number>
+      <number>120</number>
      </attribute>
      <attribute name="headerStretchLastSection">
       <bool>false</bool>

@@ -8,18 +8,20 @@ import warnings
 
 #TODO LIST:
 #   1: Different attachment format support.
-#   2: Issue id case insensitive(all to captive)
+# X 2: Issue id case insensitive(all to captive)
 #   3: Filter file types
-#   4: Show file details (time, uploader), also sortable
-#   5: Now vs Then 
+# X 4: Show file details (time, uploader), also sortable
+# X 5: Now vs Then 
 
+#Qs:
+#   1: Date format?
 
 #Suppress all warning messages cuz they are annoying
 warnings.filterwarnings("ignore")
 
 class AttachmentEditor():
     def __init__(self, needs_auth=True):
-        self.default_size = (655, 385)
+        self.default_size = (775, 385)
         self.folded_size = (355, 385)
         self.folded = False
     
@@ -42,7 +44,6 @@ class AttachmentEditor():
         self.initial_loading_complete = False
         self.attachments_mapping = {}  # {filename: (file, id, sufix)...}
         self.original_attachments = {} # copy of above
-        self.changed_attachments = []  # [(old, new)...]
         self.selectedAttachment = ""
         
         self.app.exec_()
@@ -76,79 +77,104 @@ class AttachmentEditor():
     def launchMain(self):
         self.main_window.show()
         self.main_window.getButton.clicked.connect(self.getIssueById)
-        #self.attachment_list = self.main_window.attachments
-        #self.attachment_list.itemDoubleClicked.connect(self.showAttachment)
-        #self.attachment_list.itemChanged.connect(self.attachmentRenamed)
-        #self.attachment_list.itemSelectionChanged.connect(self.attachmentSelected)
-        #self.main_window.updateButton.clicked.connect(self.updateAttachments)
-        self.main_window.hideOriginalButton.clicked.connect(self.hideOriginal)
+                
+        self.original_tree = self.main_window.originalTree
+        self.original_tree.itemDoubleClicked.connect(self.showAttachment)
+        self.original_tree.header().setClickable(True)
+        self.original_tree.header().sectionClicked.connect(self.sort_by_column)
+        
+        self.current_tree = self.main_window.currentTree
+        self.current_tree.itemDoubleClicked.connect(self.triggerEditCurrent)
+        self.current_tree.itemChanged.connect(self.attachmentRenamed)
+        self.current_tree.itemSelectionChanged.connect(self.attachmentSelected)
+        
+        self.main_window.updateButton.clicked.connect(self.updateAttachments)
+        self.main_window.hideOriginalButton.clicked.connect(self.foldOriginal)
                 
     def getIssueById(self):
-        id = self.main_window.issueId.text()
+        msg = "Fetching data from JIRA server. Please wait..."
+        self.initializeProgressBar(msg)
+        id = self.main_window.issueId.text().upper()
         self.initial_loading_complete = False
         try:
-            #Reset data structures
-            self.attachments_mapping = {}
-            self.original_attachments = {}
-            self.changed_attachments = []
-            
             #Get issue object, its attachments and fill the data structures
             self.issue = self.jira.issue(id)
             attachments = self.issue.fields.attachment
-            for attachment in attachments:
-                file_name = str(attachment).split('.')[0]
+            num_attachments = len(attachments)
+            
+            #Reset data structures
+            self.attachments_mapping = {}  
+            self.original_attachments = {}
+            
+            for idx, attachment in enumerate(attachments):
+                #file_name = str(attachment).split('.')[0]
+                file_name = str(attachment)
                 file_sufix = '.' + str(attachment).split('.')[1]
-                self.attachments_mapping[file_name] = (attachment.get(), attachment.id, file_sufix)
+                file_author = attachment.author.displayName
+                file_created_date = attachment.created
+                self.attachments_mapping[file_name] = (attachment.get(), attachment.id, file_sufix, file_author, file_created_date)
+                self.refreshProgressBar(num_attachments, idx + 1)
                 #print "getting", filename, self.attachments_mapping.keys()
             
             #Make a copy of the original attachments
             self.original_attachments = dict(self.attachments_mapping)
             
             #Add attachment names to display
-            self.attachment_list.clear()
-            self.attachment_list.addItems(self.attachments_mapping.keys())
-            
-            #Set file names editable (any better options?)
-            for x in xrange(0, self.attachment_list.count()):
-                item = self.attachment_list.item(x)
-                item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable)
-            
+            self.refreshDisplayPanel(self.original_tree, self.original_attachments)
+            self.refreshDisplayPanel(self.current_tree, self.original_attachments, True)
+           
             #print "ori = ", self.original_attachments.keys()
             #print "curr = ", self.attachments_mapping.keys()
             self.initial_loading_complete = True
             
         except Exception as e:
-            print "ERROR ", e
-            self.attachments_mapping = {}
-            self.original_attachments = {}
-            self.changed_attachments = []
-            self.attachment_list.clear()
+            warning_msg = "Issue <%s> not found! Please retry!" % str(id)
+            self.displayWarning("Warning", warning_msg)
+            #Shoot error message dialog
             self.main_window.issueId.clear()
+        self.progress_window.close()
       
-    def showAttachment(self, item):
-        attachment_name = item.text()
-        attachment_sufix = self.attachments_mapping[attachment_name][2]
+    def showAttachment(self, item, col):
+        attachment_name = item.text(0)
+        attachment_sufix = self.original_attachments[attachment_name][2]
         attachment_path = "attachments/" + attachment_name + attachment_sufix
+        pic_sufixes = {".png": 1, ".PNG": 1, ".bmp": 1, ".BMP": 1, ".jpg": 1, ".JPG": 1, ".jpeg": 1, ".JPEG": 1}
         try:
             with open(attachment_path, 'wb') as output:
-                output.write(self.attachments_mapping[attachment_name][0])
-            image = Image.open(attachment_path)
-            image.show()
+                output.write(self.original_attachments[attachment_name][0])
+            if attachment_sufix in pic_sufixes:
+                image = Image.open(attachment_path)
+                image.show()
+            else:
+                #TODO text file support 
+                self.text_window = QtUiTools.QUiLoader().load("ui/textPanel.ui")
+                with open(attachment_path, 'r') as input:
+                    content = input.read()
+                    self.text_window.textDisplay.document().setPlainText(content)
+                    self.text_window.show()
+
         except Exception as e:
+            raise
             print "ERROR ", e
         
         print attachment_path
     
-    def attachmentSelected(self):
-        self.selectedAttachment = self.attachment_list.currentItem().text()
+    def triggerEditCurrent(self, item, col):
+        if col != 0:
+            return
+        self.current_tree.editItem(item, col)
     
-    def attachmentRenamed(self, item):
-        #print "called", self.initial_loading_complete
+    def attachmentSelected(self):
+        if self.current_tree.currentItem():
+            self.selectedAttachment = self.current_tree.currentItem().text(0)
+        
+    def attachmentRenamed(self, item, col):
+        #print "called", self.initial_loading_complete, self.selectedAttachment
         if self.initial_loading_complete and self.selectedAttachment != "":
-            new_name = item.text()
+            new_name = item.text(0)
             self.attachments_mapping[new_name] = self.attachments_mapping.pop(self.selectedAttachment)
             self.selectedAttachment = new_name
-    
+            
     def updateAttachments(self):
         #Delete all changed
         for attachment in self.original_attachments:
@@ -180,49 +206,105 @@ class AttachmentEditor():
             self.getIssueById()
             #print "ori after = ", self.original_attachments.keys()
             #print "curr after = ", self.attachments_mapping.keys()
-        
-    
+      
     #Using python JIRA module
     def connect_to_JIRA(self, server_url, auth):
         options = {'server': server_url, 'verify':False}
         jiraInstance = JIRA(options, basic_auth = auth, max_retries=0)
         return jiraInstance
 
-    def hideOriginal(self):
+    def foldOriginal(self):
         if (not self.folded):
             self.main_window.setFixedSize(self.folded_size[0], self.folded_size[1])
             self.main_window.hideOriginalButton.setText(">>")
             self.folded = True
-            self.main_window.hideOriginalButton.clicked.connect(self.expandOriginal)
-
-    def expandOriginal(self):
-        if (self.folded):
+        else:
             self.main_window.setFixedSize(self.default_size[0], self.default_size[1])
             self.main_window.hideOriginalButton.setText("<<")
             self.folded = False
-            self.main_window.hideOriginalButton.clicked.connect(self.hideOriginal)
-    
+ 
+    def refreshDisplayPanel(self, panel, content, editable=False, sort_key=None):
+        while (panel.topLevelItemCount() > 0):
+            panel.takeTopLevelItem(0)
+            
+        sorted_data = []
+        for file_name in content:
+            sorted_data.append((file_name, content[file_name]))
+            
+        if sort_key:
+            sorting_method = None
+            if sort_key == "Name":
+                sorting_method = lambda x: x[0]
+            elif sort_key == "Author":
+                sorting_method = lambda x: x[1][3].split(' ')[0]
+            elif sort_key == "Date":
+                pass
+            sorted_data = (sorted(sorted_data, key=sorting_method))[::-1]
+            
+        for data in sorted_data:
+            file_name = data[0]
+            author = data[1][3]
+            date = data[1][4]
+            item = QtGui.QTreeWidgetItem()
+            item.setText(0, file_name)
+            item.setText(1, author)
+            item.setText(2, date)
+            panel.insertTopLevelItem(0, item)
         
+        if editable:
+            for x in xrange(0, panel.topLevelItemCount()):
+                item = panel.topLevelItem(x)
+                item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable)
+    
+    def sort_by_column(self, col):
+        if col == 0:
+            self.refreshDisplayPanel(self.original_tree, self.original_attachments, sort_key="Name")
+        elif col == 1:
+            self.refreshDisplayPanel(self.original_tree, self.original_attachments, sort_key="Author")
+        elif col == 2:
+            pass
+        else:
+            print "ERROR sorting!"
+    
+    def parseJiraTime(self, time):
+        pass
+    
+    def initializeProgressBar(self, msg):
+        self.progress_window = QtUiTools.QUiLoader().load("ui/progress.ui")
+        self.progress_window.progressBar.setRange(0, 100)
+        self.progress_window.progressBar.setValue(1)
+        self.progress_window.messageLabel.setText(msg)
+        self.progress_window.show()
+    
+    def refreshProgressBar(self, total, current):
+        if self.progress_window:
+            self.progress_window.progressBar.setRange(0, total)
+            self.progress_window.progressBar.setValue(current)
+    
+    def displayWarning(self, title, msg):
+        self.warning_window = QtGui.QMessageBox.warning(self.main_window, title, msg)
+        #self.warning_window.show()
+    
 def testStuff():
-    #options = {'server': "https://hdc-tomcat-jira194.ubisoft.org/jira", 'verify':False}
-    #jira = JIRA(options, basic_auth = ("hui-cheng.zhuang@ubisoft.com","32194567ZHc"))
-    #issue = jira.issue("TES-3")
-    #with open('attachments/alps.jpg', 'rb') as f:
-    #    print type(f)
-    #    jira.add_attachment(issue=issue, attachment=f, filename="test.jpg")
-    #attachments = issue.fields.attachment
-    #for attachment in attachments:
-    #    name = str(attachment)
-    #    if name == "alps.jpg":
-    #        print type(attachment.get())
-    #sys.exit(0)  
+    options = {'server': "https://hdc-tomcat-jira194.ubisoft.org/jira", 'verify':False}
+    jira = JIRA(options, basic_auth = ("hui-cheng.zhuang@ubisoft.com","32194567ZHc"))
+    issue = jira.issue("TES-3")
+    attachments = issue.fields.attachment
+    for attachment in attachments:
+        name = str(attachment)
+        #print attachment.__dict__.keys()
+        #print attachment.author.__dict__.keys()
+        print attachment.created, attachment.author.raw
+        break
+    sys.exit(0)  
     a = 1
 
 def main():
-    editor = AttachmentEditor(False)
+    editor = AttachmentEditor()
     #jira_instance.add_attachment(issue=issue, attachment=file, filename="test.jpg")
     
 if __name__ == "__main__":
+    #testStuff()
     main()
 
 
